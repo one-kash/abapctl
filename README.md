@@ -1,4 +1,4 @@
-# ABAP CTL
+# ABAP Accelerator CLI
 
 `abapctl` is a standalone binary that automates SAP development workflows. Think of it as [ABAP Accelerator](https://github.com/aws-solutions-library-samples/guidance-for-deploying-sap-abap-accelerator-for-amazon-q-developer) in batch (headless) mode. Optimized for AI agents and usable by humans from the terminal. Works with any ADT-enabled SAP system (ECC, S/4HANA).
 
