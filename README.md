@@ -291,7 +291,7 @@ This repo ships a ready-made Kiro skill at [`.kiro/skills/sap-abap/`](./.kiro/sk
 
 SAP Clean Core is about decoupling custom extensions from SAP standard code so that S/4HANA upgrades stay safe. Custom code that depends on internal or non-released SAP APIs creates upgrade risk; the [Clean Core Extensibility whitepaper](https://www.sap.com/documents/2024/09/20aece06-d87e-0010-bca6-c68f7e60039b.html) defines four compliance levels that quantify it.
 
-abapctl runs the assessment, prepares per-object fix context, and applies the fixes. The fix step itself is where an AI agent does the work, with abapctl as the live SAP-side oracle. The bundled [`.abapctl/reference/cc-kb/`](./.abapctl/reference/cc-kb/) directory contains the remediation knowledge base used during the fix loop.
+abapctl runs the assessment, prepares per-object fix context, and applies the fixes. The fix step itself is where an AI agent does the work, using abapctl to read, check, and validate against the live SAP system. A sample remediation knowledge base for the fix loop lives in the [`clean-core/cc-kb/`](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases/tree/main/clean-core/cc-kb) directory of the [agentic-ai-guidance-for-SAP-use-cases](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases) repo.
 
 ### 1. Assess
 

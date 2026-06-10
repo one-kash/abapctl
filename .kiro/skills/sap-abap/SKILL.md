@@ -1,13 +1,14 @@
 ---
 name: sap-abap
-description: "Work with SAP ABAP objects on a live system via the abapctl CLI (a wrapper for SAP's ADT REST API). Use to read, navigate, assess, refactor, or write ABAP code. Trigger when the user mentions SAP, ABAP, ADT, ATC, clean core, transports, CDS, DDIC, classes/programs/function groups, packages, ENHO, text-elements, release state, or asks to inspect or modify ABAP code against a live system."
+description: "Work with SAP ABAP objects on a live system via the abapctl CLI (headless, scriptable access to SAP's ADT API). Use to read, navigate, assess, refactor, or write ABAP code. Trigger when the user mentions SAP, ABAP, ADT, ATC, abapctl, clean core, transports, CDS, DDIC, RAP/behavior definitions, classes/programs/function groups, packages, ENHO, text-elements, release state, code navigation/completion, refactoring (rename/extract/move), workspace sync, data preview/SQL, ABAP Unit, or service bindings, or asks to inspect, navigate, refactor, run, or modify ABAP code against a live system."
+argument-hint: "[optional: what you want to do, e.g. 'assess ZFINANCE', 'rename method in ZCL_FOO', 'pull workspace']"
 ---
 
 # Working with SAP ABAP via abapctl
 
 `abapctl` is the CLI you'll use for SAP's ADT REST API. Reach for it whenever you need to read, navigate, assess, refactor, or write ABAP objects on a live SAP system. It handles auth, CSRF, lock/unlock, activation, retries, and session reuse.
 
-This `SKILL.md` is the **mental model + decision aid** — keep it loaded. Companion file **`reference.md`** is the **flag catalog and wire-level gotchas** — read it when picking flags. Source of truth: `abapctl --help`, `abapctl <group> --help`, `abapctl tools list --json`.
+This `SKILL.md` is the **mental model + decision aid** (keep it loaded). Companion file **`reference.md`** is the **flag catalog and behaviors** (read it when picking flags). Source of truth: `abapctl --help`, `abapctl <group> --help`, `abapctl tools list --json`.
 
 ## Pick the right command (intent → command)
 
@@ -28,8 +29,8 @@ Scan this first. If your intent isn't here, fall back to `abapctl tools list --j
 | **Read source** | | |
 | Class header only | `source get ZCL_FOO` | classes default to header |
 | Class methods | `source get ZCL_FOO --include implementations` | also `definitions`, `testclasses` |
-| Program / interface / FUGR include / DDLS body | `source get <name>` | single source — no `--include` |
-| Translatable strings (TEXT-001, headings) | `text-elements get <obj> --category symbols\|selections\|headings` | divergent semantics — see below |
+| Program / interface / FUGR include / DDLS body | `source get <name>` | single source (no `--include`) |
+| Translatable strings (TEXT-001, headings) | `text-elements get <obj> --category symbols\|selections\|headings` | divergent semantics (see below) |
 | Revision history | `object history <obj>` | |
 | **Run checks** | | |
 | Syntax of the active version | `check syntax <obj>` | |
@@ -95,9 +96,9 @@ Scan this first. If your intent isn't here, fall back to `abapctl tools list --j
 3. **Persist sessions**: `--session-file .abapctl/.session.json` (or set `defaults.session_file`). Saves seconds per call.
 4. **Probe capability before assuming**: `discover -c <c>` (top level) or `tools coverage -c <c>` (registry vs system). Some endpoints don't exist on every release (EC6 lacks lots; S/4 has more).
 
-## Agent-context note (cwd matters)
+## Agent-context note (subagents)
 
-If your shell session starts outside the project root, your cwd may not contain the `.abapctl.json` config. **Before running any `abapctl` command, `cd` to the directory containing `.abapctl.json`.** Connection config resolves from cwd; a wrong cwd reads as "connection not configured" and looks like a SAP outage. If `.abapctl.json` isn't found in any ancestor, abort — don't guess.
+If you're a remediator/applier subagent spawned with sealed context, your cwd may not be the project root. **Before running any `abapctl` command, `cd` to the directory containing `.abapctl.json`.** Connection config resolves from cwd; a wrong cwd reads as "connection not configured" and looks like a SAP outage. If `.abapctl.json` isn't found in any ancestor, abort. Don't guess.
 
 ## Safety model
 
@@ -119,7 +120,7 @@ Rules:
 | Code | Meaning | Action |
 |---|---|---|
 | `0` | Clean success | Continue |
-| `1` | **Partial** — findings exist, some objects failed, diffs present | Parse JSON; report per-object outcome |
+| `1` | **Partial**: findings exist, some objects failed, diffs present | Parse JSON; report per-object outcome |
 | `2` | Hard error (auth, config, SAP fault) | Stop; surface `error.code` / `error.message` to user |
 
 `check atc` exit 1 = findings, not crash. `workspace diff` exit 1 = diffs exist. Treat exit 1 as **data**.
@@ -128,38 +129,38 @@ Rules:
 
 These are the things that consume cycles when you guess.
 
-### Class includes — `--include` is mandatory for method bodies
+### Class includes: `--include` is mandatory for method bodies
 - `source get ZCL_FOO` returns header only. To get bodies: `--include implementations`.
 - Valid values per command:
   - `source get/put`: `definitions` | `implementations` | `testclasses`
   - `code *`, `refactor *`, `object history`, `enho on`: above + `main`
-- Other types (PROG, INTF, FUGR/FF, DDLS) ignore `--include` — single source.
+- Other types (PROG, INTF, FUGR/FF, DDLS) ignore `--include`. Single source.
 
-### Multi-include `create class` and `create function-group` — repeated `--source`
-Filename suffix dispatches to the right slot. Don't pass JSON metadata or wrap the calls — the CLI does it.
+### Multi-include `create class` and `create function-group`: repeated `--source`
+Filename suffix dispatches to the right slot. Don't pass JSON metadata or wrap the calls. The CLI does it.
 
 CLAS slots:
-- `{name}.clas.abap` — main
+- `{name}.clas.abap`: main
 - `{name}.clas.definitions.abap`
 - `{name}.clas.implementations.abap`
 - `{name}.clas.macros.abap`
 - `{name}.clas.testclasses.abap`
 
 FUGR members:
-- `{name}.fugr.abap` — TOP
-- `{name}.fugr.{fmname}.func.abap` — function module (FUGR/FF)
-- `{name}.fugr.{suffix}.reps.abap` — function group include (FUGR/I)
+- `{name}.fugr.abap`: TOP
+- `{name}.fugr.{fmname}.func.abap`: function module (FUGR/FF)
+- `{name}.fugr.{suffix}.reps.abap`: function group include (FUGR/I)
 
 Single-source CLAS convenience: one `--source` with non-matching filename → treated as main + warning.
 
-### Ambiguous object names — `--adt-type`
+### Ambiguous object names: `--adt-type`
 Some Z names exist as multiple types (e.g. `ZFOO` as both PROG/P and FUGR/FF). Pass `--adt-type PROG/P` (or `CLAS/OC`, `FUGR/FF`, etc.) to disambiguate. Available on `source get`, `source put`, `text-elements get`, `text-elements put`.
 
 ### `text-elements put` diverges from `source put`
-- `--category` is **REQUIRED** (`symbols` | `selections` | `headings`). No default — silent wrong-category writes too easy.
+- `--category` is **REQUIRED** (`symbols` | `selections` | `headings`). No default. Silent wrong-category writes too easy.
 - `--file` REQUIRED.
 - **No auto-activation.** Use `--activate` to opt in. (Probe-confirmed: text-elements don't need activation; this is intentional.)
-- **Lock target is the textelements URI**, not the parent object URI — handled internally; just don't be surprised if you see `/sap/bc/adt/textelements/programs/...` in logs.
+- **Lock target is the textelements URI**, not the parent object URI. Handled internally; just don't be surprised if you see `/sap/bc/adt/textelements/programs/...` in logs.
 - Plaintext format: `KEY=VALUE` per line. Symbols: 3-char keys; selections: 30-char limit; headings: fixed key set (LISTHEADER, COLUMNHEADER_1..4).
 
 ### `create <type> --source <path>` covers 14 of 21 types
@@ -167,13 +168,13 @@ Two channels, hard-coded per command:
 - **source-main** (text/plain → `{root}/source/main`): `program`, `interface`, `include`, `function-module`, `function-group-include`, `ddl-source`, `service-definition`, `access-control`, `metadata-extension`
 - **root-xml** (application/* → root URL): `message-class`, `auth-field`, `auth-object`, `domain`, `data-element`
 
-`create class` and `create function-group` use repeated `--source` (multi-include — see above).
+`create class` and `create function-group` use repeated `--source` (multi-include, see above).
 
-`create domain` and `create data-element` accept either typed flags OR `--source` (XOR — mutex error names the conflicting flags).
+`create domain` and `create data-element` accept either typed flags OR `--source` (XOR, mutex error names the conflicting flags).
 
 `function-module` and `function-group-include` require `--group <fugr>`.
 
-`create annotation-definition` is shell-only (deferred — test users get HTTP 403).
+`create annotation-definition` is shell-only (deferred, test users get HTTP 403).
 
 ### Positions are 1-based
 `--line 1 --col 1` = first character of first line. Matches the ABAP editor. Don't zero-index.
@@ -185,13 +186,13 @@ Two channels, hard-coded per command:
 - `workspace list` (no arg) prints `SID/PACKAGE` of every workspace.
 
 ### Stable-source conventions
-- `source format` reads stdin only — pipe in; don't pass a filename.
-- `source format-settings` is read-only without flags (prints), mutating with `--style`/`--indentation` (writes system-level formatter settings — get user OK).
+- `source format` reads stdin only. Pipe in; don't pass a filename.
+- `source format-settings` is read-only without flags (prints), mutating with `--style`/`--indentation` (writes system-level formatter settings, get user OK).
 - Passwords come from env vars named via `password_env`. Auth fail on first call usually means env var not exported in current shell.
 
 ## Common workflows
 
-Short list — for richer recipes use `abapctl recipes` and `abapctl recipes <name> --json`.
+Short list. For richer recipes use `abapctl recipes` and `abapctl recipes <name> --json`.
 
 **Understand before changing:**
 ```bash
@@ -273,7 +274,7 @@ Object level = worst finding across the object.
 | 0 | A | Clean | — |
 | 3 | B | Info only | — |
 | 2 | C | Warnings | Optional |
-| 1 | D | Errors | **Must fix** — blocks cloud |
+| 1 | D | Errors | **Must fix**: blocks cloud |
 
 ## Failure decoder
 
@@ -281,17 +282,17 @@ Object level = worst finding across the object.
 |---|---|---|
 | 401/403 on first call | Password env var not exported in this shell | Re-export `$SAP_*_PASSWORD`; retry |
 | 403 only on writes (read works) | Stale CSRF in persisted session | Delete `.abapctl/.session.json`; retry once |
-| HTTP 423 / "object is locked" | Someone holds the lock; or `text-elements put` against parent URI | `object info <name> --json` to see holder. Don't force-unlock — surface to user |
-| `transport info <NR>` returns OBJECT_NOT_FOUND | Wrong verb — `info` takes object name, not transport NR | Use `transport get <NR>` |
+| HTTP 423 / "object is locked" | Someone holds the lock; or `text-elements put` against parent URI | `object info <name> --json` to see holder. Don't force-unlock. Surface to user |
+| `transport info <NR>` returns OBJECT_NOT_FOUND | Wrong verb: `info` takes object name, not transport NR | Use `transport get <NR>` |
 | "capability not available" / 404 on a registered command | Endpoint not on this release | `discover -c <c> --json`; or `tools coverage -c <c> --json` |
 | Recursive `workspace init --depth N` pulled tens of thousands of objects | Sideways package refs explode at depth >1 | Use `init` per leaf package, or `--depth 1` |
 
 ## Don't
 
-- Don't invent command names — verify with `--help` or `tools list --json`. The CLI evolves.
+- Don't invent command names. Verify with `--help` or `tools list --json`. The CLI evolves.
 - Don't pass `-y` silently on destructive commands. Confirm with the user first.
-- Don't hardcode hosts, passwords, transports, or SIDs — read from config.
-- Don't parse non-JSON stdout with regex — add `--json` and parse the object.
+- Don't hardcode hosts, passwords, transports, or SIDs. Read from config.
+- Don't parse non-JSON stdout with regex. Add `--json` and parse the object.
 - Don't zero-index `--line` / `--col`.
-- Don't `2>&1` when piping to `jq` — progress goes to stderr.
-- Don't pre-flight a transport before a write — `source put` resolves it. (`transport get <NR>` to *check* a known NR is fine; don't *create* one speculatively.)
+- Don't `2>&1` when piping to `jq`. Progress goes to stderr.
+- Don't pre-flight a transport before a write. `source put` resolves it. (`transport get <NR>` to *check* a known NR is fine; don't *create* one speculatively.)
