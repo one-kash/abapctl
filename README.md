@@ -91,7 +91,7 @@ Create a config file in your project root:
 abapctl init
 ```
 
-This writes a `.abapctl.json` template. Edit it to point at your development or sandbox system:
+This writes a `.abapctl.json` template. `abapctl init` (and `abapctl config add-connection`) prompt you for the connection details and how to supply the password. Edit the file to point at your development or sandbox system:
 
 ```jsonc
 {
@@ -103,7 +103,7 @@ This writes a `.abapctl.json` template. Edit it to point at your development or 
       "client": "100",
       "secure": true,
       "username": "DEVELOPER",
-      "password_env": "SAP_PASSWORD",
+      "password_aws_secret": "sap-dev",
       "language": "EN"
     }
   },
@@ -111,18 +111,29 @@ This writes a `.abapctl.json` template. Edit it to point at your development or 
 }
 ```
 
-`port` is optional. It defaults to `443` when `secure: true` and `8000` when `secure: false`. Set it explicitly if your SAP system listens on a non-standard ADT port (common for on-prem instances on the 8000-8099 or 50000-range).
+`port` is optional. It defaults to `443` when `secure: true` and `8000` when `secure: false`. Set it explicitly if your SAP system listens on a custom port.
 
-The password lives in an environment variable. The config file only stores the variable's name, never the password itself. Source the password from your secret manager, for example:
+**Password.** The config file holds a reference to the password, not the password itself. There are two sources. If both are set, `password_aws_secret` is used.
+
+| Field | Where the password comes from |
+|-------|-------------------------------|
+| `password_aws_secret` | [recommended] A secret in AWS Secrets Manager, read at run time. The value is never stored on disk or written to logs. |
+| `password_env` | An environment variable that already holds the password (default `ABAPCTL_PASSWORD`). |
+
+For AWS Secrets Manager, a single-value secret is used automatically. If the secret has multiple key/value pairs, add `"password_aws_key": "<key>"` to pick which one is the password.
+
+> [!NOTE]
+> The AWS Secrets Manager option needs the AWS CLI (`aws`) on your `PATH`. abapctl calls it directly, so your existing profile, region, and SSO settings apply. There is no AWS SDK dependency.
+
+To use an environment variable instead, set `password_env` to the variable name and export the password before running abapctl:
 
 ```bash
-export SAP_PASSWORD=$(aws secretsmanager get-secret-value --secret-id sap/dev --query SecretString --output text)
+export ABAPCTL_PASSWORD='your-password'
 ```
 
 Verify the connection:
 
 ```bash
-export SAP_PASSWORD='...'
 abapctl system-check
 abapctl object info ZCL_FOO       # first read confirms it works
 ```
