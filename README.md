@@ -1,14 +1,22 @@
 # ABAP Accelerator CLI
 
-`abapctl` is a standalone binary that automates SAP development workflows. Think of it as [ABAP Accelerator](https://github.com/aws-solutions-library-samples/guidance-for-deploying-sap-abap-accelerator-for-amazon-q-developer) in batch (headless) mode. Optimized for AI agents and usable by humans from the terminal. Works with any ADT-enabled SAP system (ECC, S/4HANA).
+**Bring SAP ABAP development into the agentic era with `abapctl`.**
+
+- **Work on ABAP code, checks, and transports:** read and write source, run ATC and unit checks, manage transport requests.
+- **Read business data through published OData services:** query it in real time, the way a Fiori app sees it.
+- **Assess and remediate objects toward a cleaner core:** classify against Clean Core levels and drive the fix loop.
+- **Script it yourself, or hand it to an AI agent:** it reads structured JSON, every command is tagged read-only or mutating, and every write previews via `--dry-run`.
+- **Pair it with [Kiro CLI](https://kiro.dev/cli/):** let an agent drive these workflows end to end.
+
+Think of it as [ABAP Accelerator](https://github.com/aws-solutions-library-samples/guidance-for-deploying-sap-abap-accelerator-for-amazon-q-developer) in headless mode.
 
 ## 1. Architecture
 
 *Every command runs as a direct call to your SAP system, with each call captured both in your SAP audit trail and in a local log under `.abapctl/logs/`.*
 
 ```
-abapctl ──HTTPS──►  /sap/bc/adt/...  ──►  SAP system
-   │                   ADT REST
+abapctl ──HTTPS──►  /sap/bc/adt/...     ──►  SAP system   (design-time: objects, checks, transports)
+   │            └──►  /sap/opu/odata/...  ──►              (runtime: query published OData services, read-only)
    └─ .abapctl.json (connection, defaults)
 ```
 
@@ -292,25 +300,37 @@ abapctl source put ZCL_FOO --file new.clas.abap --dry-run --json --session-file 
 abapctl source put ZCL_FOO --file new.clas.abap --yes --session-file $SESSION
 ```
 
-`--dry-run` works on `source put`, `source push`, all `workspace` writes, all `create` commands, transport release/delete, object delete/activate, service publish/unpublish, `clean-core apply`, and `bdef create`. Browse the full catalog with safety flags in [Commands](#11-commands).
+`--dry-run` works on `source put`, `source push`, all `workspace` writes, all `create` commands, transport release/delete, object delete/activate, service publish/unpublish, `clean-core apply`, and `bdef create`. Browse the full catalog with safety flags in [Commands](#12-commands).
 
 This repo ships a ready-made Kiro skill at [`.kiro/skills/sap-abap/`](./.kiro/skills/sap-abap/). Clone or copy this into your project and Kiro auto-discovers the skill on the next session.
 
-## 10. Assess and remediate for Clean Core
+## 10. Query live business data through OData
+
+*Let an AI agent (or you) read SAP business data the way a Fiori app sees it.*
+
+With abapctl, an agent can query your published OData services directly, getting the same data a real consumer sees, through the service's authorizations and filters rather than the raw table (read-only):
+
+```bash
+abapctl odata query API_DIGITALVEHSALESORDER DigitalVehicleSlsOrdItem_2 --select SalesDocument,SalesDocumentItem --top 5 -c s4h
+```
+
+So you can ask "show me the latest sales order items" and have the agent answer it straight from the live system.
+
+## 11. Assess and remediate for Clean Core
 
 *Classify a package against Clean Core levels and drive the fix loop with an AI agent.*
 
 SAP Clean Core is about decoupling custom extensions from SAP standard code so that S/4HANA upgrades stay safe. Custom code that depends on internal or non-released SAP APIs creates upgrade risk; the [Clean Core Extensibility whitepaper](https://www.sap.com/documents/2024/09/20aece06-d87e-0010-bca6-c68f7e60039b.html) defines four compliance levels that quantify it.
 
-abapctl runs the assessment, prepares per-object fix context, and applies the fixes. The fix step itself is where an AI agent does the work, using abapctl to read, check, and validate against the live SAP system. A sample remediation knowledge base for the fix loop lives in the [`clean-core/cc-kb/`](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases/tree/main/clean-core/cc-kb) directory of the [agentic-ai-guidance-for-SAP-use-cases](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases) repo.
-
-### 1. Assess
+abapctl provides the four commands that drive the loop: `assess` (ATC + level classification), `prep` (download source + per-finding fix context), `apply` (lock → write → unlock → activate, with `--dry-run`), and `executive` (cross-package roll-up).
 
 ```bash
-abapctl clean-core assess ZFINANCE -c s4h
+abapctl clean-core assess ZFINANCE -c s4h    # classify every object
+abapctl clean-core prep S4H/ZFINANCE         # pull source + fix context for C/D
+abapctl clean-core apply S4H/ZFINANCE        # push fixes (--dry-run to preview)
 ```
 
-Discovers every object in the package, runs ATC with the cloud-readiness variant, and classifies each object:
+`assess` classifies each object against the cloud-readiness variant:
 
 | Level | ATC result | What it means | Action |
 |---|---|---|---|
@@ -319,63 +339,16 @@ Discovers every object in the package, runs ATC with the cloud-readiness variant
 | **C** | Warnings | Uses internal or undocumented APIs | Conditionally clean. Verify before upgrades. |
 | **D** | Errors | Non-released APIs, modifications, or blocked patterns | Requires remediation |
 
-Output goes to `clean-core/{SID}/{PACKAGE}/`:
+The fix step itself is where an AI agent does the work, using abapctl to read, check, and validate against the live SAP system. The full remediation playbook and a sample knowledge base for the fix loop live in the [**clean-core**](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases/tree/main/clean-core) directory of the [agentic-ai-guidance-for-SAP-use-cases](https://github.com/aws-for-sap/agentic-ai-guidance-for-SAP-use-cases) repo.
 
-- `reports/SUMMARY.md`: per-object table with level and finding count
-- `reports/<OBJECT>_atc.md`: per-object Markdown report
-- `state/discovery.json`: full object inventory
-- `state/progress.json`: resumable checkpoint
-- `state/<OBJECT>_findings.json`: raw structured findings
-
-The run is idempotent and resumable. Re-running picks up where it left off; pass `--force` to start fresh. Exit code `0` means clean (A/B), `1` means findings exist (C/D), `2` means error.
-
-For a cross-package roll-up:
-
-```bash
-abapctl clean-core executive
-```
-
-### 2. Prep
-
-```bash
-abapctl clean-core prep S4H/ZFINANCE
-```
-
-For each D and C object, downloads the source plus per-finding fix context. Output lands under `clean-core/{SID}/{PACKAGE}/fix-context/`:
-
-- `<obj>.<type>.abap`: editable source (abapGit/AFF naming)
-- `.context/<obj>.findings.json`: structured findings (line, message, deprecated API, suggested successor, doc URL)
-- `.context/<obj>.context.md`: human-readable fix brief
-
-### 3. Fix (AI agent loop)
-
-*Example flow. Adapt to your agent's capabilities.*
-
-This is where Kiro CLI does the work. For each priority-1 finding on a Level D object, the agent searches for a released-API replacement using three sources, stopping at the first hit:
-
-1. **ATC tags on the finding.** Every ATC finding ships per-finding metadata (`refObjectName`, `refObjectType`, `Successors:` info). When the SAP system has already classified the deprecated API and identified its successor, that data is right there in the finding.
-2. **SAP Cloudification Library reference JSONs.** Run `abapctl reference update` once, and `objectReleaseInfoLatest.json` + `objectClassifications_SAP.json` land under `.abapctl/reference/sap-api-reference/`. These cover the broad catalog of deprecated APIs and their cloud-ready successors.
-3. **Live CDS view query.** When the first two are inconclusive, `abapctl release-state lookup <api>` queries `I_APISWITHCLOUDDEVSUCCESSOR` on the connected SAP system directly. Always current to whatever release the target system is on.
-
-When the agent reports the object as clean, the human reviews the diff, then runs apply.
-
-### 4. Apply
-
-```bash
-abapctl clean-core apply S4H/ZFINANCE --dry-run    # preview every write
-abapctl clean-core apply S4H/ZFINANCE              # commit
-```
-
-Locks each object, uploads the fixed source, unlocks, and activates. Failures roll back via the lock-finally guard, so a partial run never leaves SAP in a half-modified state. Re-run to continue from the failure point.
-
-## 11. Commands
+## 12. Commands
 
 *Full command catalog with safety annotations. Run `abapctl tools list` to regenerate this list against your installed binary.*
 
 `READ` = the command only reads from SAP. `DESTR` = the command can mutate SAP. `IDEMP` = re-running produces the same result. `PARAMS` is the count of options the command accepts.
 
 <details>
-<summary><b>Show all 113 commands</b></summary>
+<summary><b>Show all 119 commands</b></summary>
 
 ```
 COMMAND                          READ   DESTR  IDEMP  PARAMS
@@ -456,6 +429,7 @@ cds repository-access            yes    —      yes    2
 cds test-dependencies            yes    —      yes    4
 service publish                  —      —      yes    3
 service unpublish                —      YES    yes    4
+service test                     yes    —      yes    5
 ddic table-settings              yes    —      yes    2
 ddic data-element                yes    —      yes    2
 ddic domain                      yes    —      yes    2
@@ -483,6 +457,9 @@ workspace remove                 —      —      yes    6
 workspace reset                  —      YES    yes    6
 workspace refresh                —      —      —      9
 release-state lookup             yes    —      yes    2
+odata list                       yes    —      yes    4
+odata metadata                   yes    —      yes    3
+odata query                      yes    —      yes    11
 text-elements get                yes    —      yes    4
 text-elements put                —      YES    —      8
 init                             —      —      yes    2
@@ -498,7 +475,7 @@ completion                       —      —      —      1
 For machine-readable output with parameter schemas, run `abapctl tools list --json`.
 </details>
 
-## 12. References
+## 13. References
 
 abapctl's Clean Core remediation patterns are synthesized from SAP's published guidance:
 
@@ -507,7 +484,7 @@ abapctl's Clean Core remediation patterns are synthesized from SAP's published g
 - [SAP/abap-atc-cr-cv-s4hc](https://github.com/SAP/abap-atc-cr-cv-s4hc): the SAP cloudification library (deprecated APIs and successors), fetched by `abapctl reference update` (Apache 2.0)
 - [SAP/styleguides](https://github.com/SAP/styleguides): Clean ABAP style guidance (Apache 2.0)
 
-## 13. License
+## 14. License
 
 abapctl is licensed under [MIT-0](./LICENSE) (MIT No Attribution).
 
